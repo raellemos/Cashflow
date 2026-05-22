@@ -1,4 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { zodValidator, fallback } from "@tanstack/zod-adapter";
+import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -7,11 +9,21 @@ import { brl, fmtDate } from "@/lib/format";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
 import { suggestCategory } from "@/lib/auto-categorization";
-import { Plus, Pencil, Trash2, X, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Search, Share2, FilterX } from "lucide-react";
 import { toast } from "sonner";
+
+const transactionsSearchSchema = z.object({
+  q: fallback(z.string(), "").default(""),
+  type: fallback(z.enum(["all", "income", "expense"]), "all").default("all"),
+  from: fallback(z.string(), "").default(""),
+  to: fallback(z.string(), "").default(""),
+  accountId: fallback(z.string(), "").default(""),
+  categoryId: fallback(z.string(), "").default(""),
+});
 
 export const Route = createFileRoute("/app/transactions")({
   head: () => ({ meta: [{ title: "Transações — CashFlow" }] }),
+  validateSearch: zodValidator(transactionsSearchSchema),
   component: TransactionsPage,
 });
 
