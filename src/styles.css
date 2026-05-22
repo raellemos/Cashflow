@@ -63,7 +63,7 @@
 
   --font-display: "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-sans: "Helvetica Neue", Helvetica, Arial, "Segoe UI", sans-serif;
-  --font-mono: "Helvetica Neue", Helvetica, ui-monospace, "SFMono-Regular", monospace;
+  --font-mono: ui-monospace, "SFMono-Regular", "Geist Mono", Menlo, Consolas, monospace;
 }
 
 /* Default theme = dark cockpit */
