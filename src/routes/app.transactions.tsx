@@ -97,20 +97,27 @@ function TransactionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-        <div>
-          <HudLabel>OPERAÇÕES</HudLabel>
-          <h1 className="font-display text-3xl md:text-5xl uppercase mt-1">Transações</h1>
+      <div className="relative border border-border p-5 md:p-6 overflow-hidden">
+        <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
+        <div className="absolute inset-0 scanline pointer-events-none" />
+        <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <div>
+            <HudLabel>OPERAÇÕES · LEDGER</HudLabel>
+            <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">Transações</h1>
+            <p className="text-muted-foreground mt-2 text-sm font-mono">
+              [ {filtered.length.toString().padStart(4, "0")} REGISTROS ]
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 text-xs uppercase tracking-wider font-medium hover:opacity-90"
+          >
+            <Plus className="size-4" /> Nova transação
+          </button>
         </div>
-        <button
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-          className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 text-xs uppercase tracking-wider font-medium"
-        >
-          <Plus className="size-4" /> Nova transação
-        </button>
       </div>
 
       <BrutalCard className="p-4">
