@@ -105,8 +105,8 @@ function LandingLogin() {
           </div>
           <div>
             <HudLabel bracket={false}>LOCAL TIME</HudLabel>
-            <div className="font-mono text-foreground">
-              {now.toLocaleTimeString("pt-BR")}
+            <div className="font-mono text-foreground" suppressHydrationWarning>
+              {now ? now.toLocaleTimeString("pt-BR") : "--:--:--"}
             </div>
           </div>
           <div>
