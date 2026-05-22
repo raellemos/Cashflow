@@ -29,9 +29,10 @@ function LandingLogin() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Real-time clock for HUD flavor
-  const [now, setNow] = useState(new Date());
+  // Real-time clock for HUD flavor (client-only to avoid hydration mismatch)
+  const [now, setNow] = useState<Date | null>(null);
   useEffect(() => {
+    setNow(new Date());
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
