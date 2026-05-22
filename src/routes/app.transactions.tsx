@@ -272,6 +272,7 @@ function TransactionsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <ExportMenu onCSV={handleExportCSV} onPDF={handleExportPDF} disabled={!filtered.length} />
             <button
               onClick={shareUrl}
               className="inline-flex items-center gap-2 border border-border text-foreground px-3 py-2.5 text-xs uppercase tracking-wider font-medium hover:border-primary hover:text-primary transition-colors"
