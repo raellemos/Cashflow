@@ -170,12 +170,21 @@ function TransactionsPage() {
                   const c = t.category_id ? catMap.get(t.category_id) : null;
                   const a = t.account_id ? accMap.get(t.account_id) : null;
                   return (
-                    <tr key={t.id} className="border-b border-border last:border-0 hover:bg-[var(--surface-elevated)]/40">
+                    <tr key={t.id} className="border-b border-border last:border-0 hover:bg-[var(--surface-elevated)]/40 transition-colors group">
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {fmtDate(t.date)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
+                          <span
+                            className={`hud-label border px-1.5 py-0.5 ${
+                              t.type === "income"
+                                ? "border-primary text-primary"
+                                : "border-[color:var(--flare)] text-[color:var(--flare)]"
+                            }`}
+                          >
+                            {t.type === "income" ? "IN" : "OUT"}
+                          </span>
                           <span className="text-base">{c?.emoji ?? "💸"}</span>
                           <span className="truncate">{t.description}</span>
                         </div>
@@ -187,7 +196,7 @@ function TransactionsPage() {
                         {a?.name ?? "—"}
                       </td>
                       <td
-                        className={`px-4 py-3 text-right font-mono tabular-nums ${
+                        className={`px-4 py-3 text-right font-mono tabular-nums whitespace-nowrap ${
                           t.type === "income" ? "text-primary" : "text-[color:var(--flare)]"
                         }`}
                       >
