@@ -8,6 +8,8 @@ import { useMemo, useState, useEffect } from "react";
 import { brl, fmtDate } from "@/lib/format";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
+import { ExportMenu } from "@/components/export-menu";
+import { exportCSV, exportPDF } from "@/lib/export";
 import { suggestCategory } from "@/lib/auto-categorization";
 import { Plus, Pencil, Trash2, X, Search, Share2, FilterX } from "lucide-react";
 import { toast } from "sonner";
