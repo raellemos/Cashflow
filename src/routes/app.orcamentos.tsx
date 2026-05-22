@@ -114,6 +114,19 @@ function BudgetsPage() {
         </div>
       </div>
 
+      {budgets.length > 0 && (() => {
+        const totalBudget = budgets.reduce((s, b) => s + Number(b.amount), 0);
+        const totalSpent = budgets.reduce((s, b) => s + (spentMap.get(b.category_id) ?? 0), 0);
+        const remaining = totalBudget - totalSpent;
+        return (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <KpiTile label="Total orçado" value={totalBudget} tone="info" />
+            <KpiTile label="Total gasto" value={totalSpent} tone="flare" />
+            <KpiTile label="Restante" value={remaining} tone={remaining >= 0 ? "lime" : "flare"} />
+          </div>
+        );
+      })()}
+
       {budgets.length === 0 ? (
         <BrutalCard className="p-12 text-center">
           <div className="font-mono text-xs text-muted-foreground uppercase">[ NENHUM ORÇAMENTO PARA O MÊS ]</div>
