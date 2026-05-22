@@ -1,4 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { zodValidator, fallback } from "@tanstack/zod-adapter";
+import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/lib/auth";
@@ -7,11 +9,21 @@ import { brl, fmtDate } from "@/lib/format";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
 import { suggestCategory } from "@/lib/auto-categorization";
-import { Plus, Pencil, Trash2, X, Search } from "lucide-react";
+import { Plus, Pencil, Trash2, X, Search, Share2, FilterX } from "lucide-react";
 import { toast } from "sonner";
+
+const transactionsSearchSchema = z.object({
+  q: fallback(z.string(), "").default(""),
+  type: fallback(z.enum(["all", "income", "expense"]), "all").default("all"),
+  from: fallback(z.string(), "").default(""),
+  to: fallback(z.string(), "").default(""),
+  accountId: fallback(z.string(), "").default(""),
+  categoryId: fallback(z.string(), "").default(""),
+});
 
 export const Route = createFileRoute("/app/transactions")({
   head: () => ({ meta: [{ title: "Transações — CashFlow" }] }),
+  validateSearch: zodValidator(transactionsSearchSchema),
   component: TransactionsPage,
 });
 
@@ -32,20 +44,59 @@ type Account = { id: string; name: string; color: string };
 function TransactionsPage() {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [search, setSearch] = useState("");
-  const [filterType, setFilterType] = useState<"all" | "income" | "expense">("all");
+  const navigate = useNavigate({ from: "/app/transactions" });
+  const search = Route.useSearch();
+  const { q, type, from, to, accountId, categoryId } = search;
+
   const [editing, setEditing] = useState<Tx | null>(null);
   const [open, setOpen] = useState(false);
+  const [qLocal, setQLocal] = useState(q);
+
+  // Debounce text search → URL
+  useEffect(() => {
+    setQLocal(q);
+  }, [q]);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      if (qLocal !== q) {
+        navigate({ search: (prev) => ({ ...prev, q: qLocal }), replace: true });
+      }
+    }, 300);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qLocal]);
+
+  const setParam = <K extends keyof typeof search>(key: K, value: (typeof search)[K]) => {
+    navigate({ search: (prev) => ({ ...prev, [key]: value }), replace: true });
+  };
+
+  const clearFilters = () => {
+    navigate({
+      search: { q: "", type: "all", from: "", to: "", accountId: "", categoryId: "" },
+      replace: true,
+    });
+  };
+
+  const activeFiltersCount =
+    (q ? 1 : 0) +
+    (type !== "all" ? 1 : 0) +
+    (from ? 1 : 0) +
+    (to ? 1 : 0) +
+    (accountId ? 1 : 0) +
+    (categoryId ? 1 : 0);
 
   const txQuery = useQuery({
-    queryKey: ["transactions", user?.id],
+    queryKey: ["transactions", user?.id, from, to],
     enabled: !!user,
     queryFn: async () => {
-      const { data, error } = await supabase
+      let qb = supabase
         .from("transactions")
         .select("id,date,description,amount,type,category_id,account_id,notes")
         .order("date", { ascending: false })
-        .limit(500);
+        .limit(1000);
+      if (from) qb = qb.gte("date", from);
+      if (to) qb = qb.lte("date", to);
+      const { data, error } = await qb;
       if (error) throw error;
       return (data ?? []) as Tx[];
     },
@@ -78,10 +129,46 @@ function TransactionsPage() {
   const accMap = useMemo(() => new Map(accs.map((a) => [a.id, a])), [accs]);
 
   const filtered = txs.filter((t) => {
-    if (filterType !== "all" && t.type !== filterType) return false;
-    if (search && !t.description.toLowerCase().includes(search.toLowerCase())) return false;
+    if (type !== "all" && t.type !== type) return false;
+    if (accountId && t.account_id !== accountId) return false;
+    if (categoryId && t.category_id !== categoryId) return false;
+    if (q && !t.description.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
+
+  const totals = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    filtered.forEach((t) => {
+      if (t.type === "income") income += Number(t.amount);
+      else expense += Number(t.amount);
+    });
+    return { income, expense, net: income - expense };
+  }, [filtered]);
+
+  const setPeriodPreset = (preset: "month" | "30d" | "90d" | "year") => {
+    const today = new Date();
+    const end = today.toISOString().slice(0, 10);
+    let start = new Date(today);
+    if (preset === "month") start = new Date(today.getFullYear(), today.getMonth(), 1);
+    else if (preset === "30d") start.setDate(start.getDate() - 30);
+    else if (preset === "90d") start.setDate(start.getDate() - 90);
+    else if (preset === "year") start = new Date(today.getFullYear(), 0, 1);
+    navigate({
+      search: (prev) => ({ ...prev, from: start.toISOString().slice(0, 10), to: end }),
+      replace: true,
+    });
+  };
+
+  const shareUrl = async () => {
+    const url = typeof window !== "undefined" ? window.location.href : "";
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copiado para a área de transferência");
+    } catch {
+      toast.error("Não foi possível copiar — copie manualmente da barra de endereço");
+    }
+  };
 
   const del = useMutation({
     mutationFn: async (id: string) => {
@@ -105,47 +192,171 @@ function TransactionsPage() {
             <HudLabel>OPERAÇÕES · LEDGER</HudLabel>
             <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">Transações</h1>
             <p className="text-muted-foreground mt-2 text-sm font-mono">
-              [ {filtered.length.toString().padStart(4, "0")} REGISTROS ]
+              [ {filtered.length.toString().padStart(4, "0")} REGISTROS · NET {brl(totals.net)} ]
             </p>
           </div>
-          <button
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-            className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 text-xs uppercase tracking-wider font-medium hover:opacity-90"
-          >
-            <Plus className="size-4" /> Nova transação
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={shareUrl}
+              className="inline-flex items-center gap-2 border border-border text-foreground px-3 py-2.5 text-xs uppercase tracking-wider font-medium hover:border-primary hover:text-primary transition-colors"
+              title="Copiar link com filtros aplicados"
+            >
+              <Share2 className="size-4" /> <span className="hidden sm:inline">Compartilhar</span>
+            </button>
+            <button
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+              className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 text-xs uppercase tracking-wider font-medium hover:opacity-90"
+            >
+              <Plus className="size-4" /> Nova
+            </button>
+          </div>
         </div>
       </div>
 
-      <BrutalCard className="p-4">
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+      {/* Filters */}
+      <BrutalCard className="p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <HudLabel>FILTROS{activeFiltersCount > 0 ? ` · ${activeFiltersCount} ATIVOS` : ""}</HudLabel>
+          {activeFiltersCount > 0 && (
+            <button
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1.5 text-xs uppercase font-mono text-muted-foreground hover:text-[color:var(--flare)] transition-colors"
+            >
+              <FilterX className="size-3.5" /> Limpar
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Search */}
+          <div className="relative md:col-span-2 lg:col-span-2">
+            <Search className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={qLocal}
+              onChange={(e) => setQLocal(e.target.value)}
               placeholder="Buscar descrição..."
               className="w-full bg-transparent border border-border pl-10 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </div>
-          <div className="flex border border-border">
-            {(["all", "income", "expense"] as const).map((k) => (
+
+          {/* Category */}
+          <label className="block">
+            <span className="hud-label block mb-1.5">Categoria</span>
+            <select
+              value={categoryId}
+              onChange={(e) => setParam("categoryId", e.target.value)}
+              className="w-full bg-[var(--surface)] border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Todas</option>
+              {cats.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.emoji} {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Account */}
+          <label className="block">
+            <span className="hud-label block mb-1.5">Conta</span>
+            <select
+              value={accountId}
+              onChange={(e) => setParam("accountId", e.target.value)}
+              className="w-full bg-[var(--surface)] border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">Todas</option>
+              {accs.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+          {/* Period */}
+          <label className="block">
+            <span className="hud-label block mb-1.5">De</span>
+            <input
+              type="date"
+              value={from}
+              max={to || undefined}
+              onChange={(e) => setParam("from", e.target.value)}
+              className="w-full bg-transparent border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <label className="block">
+            <span className="hud-label block mb-1.5">Até</span>
+            <input
+              type="date"
+              value={to}
+              min={from || undefined}
+              onChange={(e) => setParam("to", e.target.value)}
+              className="w-full bg-transparent border border-border px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+            />
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {(
+              [
+                ["month", "Mês"],
+                ["30d", "30D"],
+                ["90d", "90D"],
+                ["year", "Ano"],
+              ] as const
+            ).map(([k, label]) => (
               <button
                 key={k}
-                onClick={() => setFilterType(k)}
-                className={`px-4 py-2 text-xs uppercase tracking-wide font-mono ${
-                  filterType === k ? "bg-primary text-primary-foreground" : "text-muted-foreground"
-                }`}
+                type="button"
+                onClick={() => setPeriodPreset(k)}
+                className="border border-border px-3 py-2 text-xs uppercase font-mono hover:border-primary hover:text-primary transition-colors"
               >
-                {k === "all" ? "Todas" : k === "income" ? "Receitas" : "Despesas"}
+                {label}
               </button>
             ))}
           </div>
         </div>
+
+        {/* Type tabs */}
+        <div className="flex border border-border w-full md:w-fit">
+          {(["all", "income", "expense"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setParam("type", k)}
+              className={`px-4 py-2 text-xs uppercase tracking-wide font-mono flex-1 md:flex-none ${
+                type === k
+                  ? k === "expense"
+                    ? "bg-[color:var(--flare)] text-white"
+                    : "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {k === "all" ? "Todas" : k === "income" ? "Receitas" : "Despesas"}
+            </button>
+          ))}
+        </div>
       </BrutalCard>
+
+      {/* Totals strip */}
+      <div className="grid grid-cols-3 gap-px bg-border">
+        <div className="bg-background p-4">
+          <div className="hud-label">Receitas no recorte</div>
+          <div className="font-mono tabular-nums text-lg md:text-xl text-primary mt-1">{brl(totals.income)}</div>
+        </div>
+        <div className="bg-background p-4">
+          <div className="hud-label">Despesas no recorte</div>
+          <div className="font-mono tabular-nums text-lg md:text-xl text-[color:var(--flare)] mt-1">{brl(totals.expense)}</div>
+        </div>
+        <div className="bg-background p-4">
+          <div className="hud-label">Saldo</div>
+          <div className={`font-mono tabular-nums text-lg md:text-xl mt-1 ${totals.net >= 0 ? "text-primary" : "text-[color:var(--flare)]"}`}>
+            {brl(totals.net)}
+          </div>
+        </div>
+      </div>
 
       <BrutalCard className="overflow-hidden">
         {filtered.length === 0 ? (
