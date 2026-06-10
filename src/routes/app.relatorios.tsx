@@ -1,19 +1,32 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { listCategories, listTransactions } from "@/server/data.fn";
 import { useAuth } from "@/lib/auth";
 import { useMemo } from "react";
 import { brl } from "@/lib/format";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 export const Route = createFileRoute("/app/relatorios")({
   head: () => ({ meta: [{ title: "Relatórios — CashFlow" }] }),
   component: ReportsPage,
 });
 
-type Tx = { date: string; amount: number; type: string; category_id: string | null };
+type Tx = { date: string; amount_cents: number; type: string; category_id: string | null };
 type Category = { id: string; name: string; color: string };
 
 function ReportsPage() {
@@ -26,24 +39,17 @@ function ReportsPage() {
       const since = new Date();
       since.setMonth(since.getMonth() - 11);
       since.setDate(1);
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("date,amount,type,category_id")
-        .gte("date", since.toISOString().slice(0, 10))
-        .order("date");
-      if (error) throw error;
-      return (data ?? []) as Tx[];
+      const rows = await listTransactions({
+        data: { from: since.toISOString().slice(0, 10), limit: 1000, offset: 0 },
+      });
+      return rows as Tx[];
     },
   });
 
   const { data: cats = [] } = useQuery({
     queryKey: ["categories", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("categories").select("id,name,color");
-      if (error) throw error;
-      return (data ?? []) as Category[];
-    },
+    queryFn: async () => (await listCategories()) as Category[],
   });
 
   const catMap = useMemo(() => new Map(cats.map((c) => [c.id, c])), [cats]);
@@ -54,29 +60,42 @@ function ReportsPage() {
       const d = new Date();
       d.setMonth(d.getMonth() - i);
       d.setDate(1);
-      out.push({ label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""), income: 0, expense: 0, balance: 0 });
+      out.push({
+        label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
+        income: 0,
+        expense: 0,
+        balance: 0,
+      });
     }
     txs.forEach((t) => {
       const d = new Date(t.date + "T00:00:00");
-      const idx = 11 - ((new Date().getFullYear() - d.getFullYear()) * 12 + (new Date().getMonth() - d.getMonth()));
+      const idx =
+        11 -
+        ((new Date().getFullYear() - d.getFullYear()) * 12 +
+          (new Date().getMonth() - d.getMonth()));
       if (idx < 0 || idx > 11) return;
-      if (t.type === "income") out[idx].income += Number(t.amount);
-      else out[idx].expense += Number(t.amount);
+      if (t.type === "income") out[idx].income += t.amount_cents;
+      else out[idx].expense += t.amount_cents;
     });
     let acc = 0;
-    out.forEach((o) => { acc += o.income - o.expense; o.balance = acc; });
+    out.forEach((o) => {
+      acc += o.income - o.expense;
+      o.balance = acc;
+    });
     return out;
   }, [txs]);
 
   const byCategory = useMemo(() => {
     const m = new Map<string, { name: string; value: number; color: string }>();
-    txs.filter((t) => t.type === "expense" && t.category_id).forEach((t) => {
-      const c = catMap.get(t.category_id!);
-      if (!c) return;
-      const cur = m.get(c.id) ?? { name: c.name, value: 0, color: c.color };
-      cur.value += Number(t.amount);
-      m.set(c.id, cur);
-    });
+    txs
+      .filter((t) => t.type === "expense" && t.category_id)
+      .forEach((t) => {
+        const c = catMap.get(t.category_id!);
+        if (!c) return;
+        const cur = m.get(c.id) ?? { name: c.name, value: 0, color: c.color };
+        cur.value += t.amount_cents;
+        m.set(c.id, cur);
+      });
     return Array.from(m.values()).sort((a, b) => b.value - a.value);
   }, [txs, catMap]);
 
@@ -94,10 +113,36 @@ function ReportsPage() {
           <ResponsiveContainer>
             <LineChart data={monthly} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
               <CartesianGrid stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="label" stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, fontSize: 12 }} formatter={(v: number) => brl(v)} />
-              <Line type="stepAfter" dataKey="balance" stroke="var(--primary)" strokeWidth={2} dot={false} />
+              <XAxis
+                dataKey="label"
+                stroke="var(--fg-meta)"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                stroke="var(--fg-meta)"
+                fontSize={11}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => `${(v / 100000).toFixed(0)}k`}
+              />
+              <Tooltip
+                contentStyle={{
+                  background: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 0,
+                  fontSize: 12,
+                }}
+                formatter={(v: number) => brl(v)}
+              />
+              <Line
+                type="stepAfter"
+                dataKey="balance"
+                stroke="var(--primary)"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -110,9 +155,29 @@ function ReportsPage() {
             <ResponsiveContainer>
               <BarChart data={monthly} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="label" stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, fontSize: 12 }} formatter={(v: number) => brl(v)} />
+                <XAxis
+                  dataKey="label"
+                  stroke="var(--fg-meta)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="var(--fg-meta)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${(v / 100000).toFixed(0)}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 0,
+                    fontSize: 12,
+                  }}
+                  formatter={(v: number) => brl(v)}
+                />
                 <Bar dataKey="income" fill="var(--primary)" />
                 <Bar dataKey="expense" fill="var(--flare)" />
               </BarChart>
@@ -124,14 +189,33 @@ function ReportsPage() {
           <HudLabel>DISTRIBUIÇÃO POR CATEGORIA</HudLabel>
           <div className="h-72 mt-4">
             {byCategory.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs font-mono text-muted-foreground uppercase">[ SEM DADOS ]</div>
+              <div className="h-full flex items-center justify-center text-xs font-mono text-muted-foreground uppercase">
+                [ SEM DADOS ]
+              </div>
             ) : (
               <ResponsiveContainer>
                 <PieChart>
-                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={50} outerRadius={95} stroke="var(--background)">
-                    {byCategory.map((d, i) => <Cell key={i} fill={d.color || "var(--primary)"} />)}
+                  <Pie
+                    data={byCategory}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={95}
+                    stroke="var(--background)"
+                  >
+                    {byCategory.map((d, i) => (
+                      <Cell key={i} fill={d.color || "var(--primary)"} />
+                    ))}
                   </Pie>
-                  <Tooltip contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, fontSize: 12 }} formatter={(v: number) => brl(v)} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 0,
+                      fontSize: 12,
+                    }}
+                    formatter={(v: number) => brl(v)}
+                  />
                 </PieChart>
               </ResponsiveContainer>
             )}
@@ -151,12 +235,22 @@ function ReportsPage() {
                   <span className="text-muted-foreground">{brl(c.value)}</span>
                 </div>
                 <div className="h-1.5 bg-background border border-border overflow-hidden">
-                  <div className="h-full" style={{ width: `${(c.value / max) * 100}%`, background: c.color || "var(--primary)" }} />
+                  <div
+                    className="h-full"
+                    style={{
+                      width: `${(c.value / max) * 100}%`,
+                      background: c.color || "var(--primary)",
+                    }}
+                  />
                 </div>
               </div>
             );
           })}
-          {byCategory.length === 0 && <div className="font-mono text-xs text-muted-foreground uppercase text-center py-6">[ SEM DESPESAS ]</div>}
+          {byCategory.length === 0 && (
+            <div className="font-mono text-xs text-muted-foreground uppercase text-center py-6">
+              [ SEM DESPESAS ]
+            </div>
+          )}
         </div>
       </BrutalCard>
     </div>

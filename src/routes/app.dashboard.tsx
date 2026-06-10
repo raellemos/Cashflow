@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { listCategories, listTransactions } from "@/server/data.fn";
 import { useAuth } from "@/lib/auth";
 import { useMemo, useState } from "react";
 import { brl, fmtDate, monthLabel } from "@/lib/format";
@@ -31,7 +31,7 @@ type Tx = {
   id: string;
   date: string;
   description: string;
-  amount: number;
+  amount_cents: number;
   type: "income" | "expense";
   category_id: string | null;
   account_id: string | null;
@@ -52,26 +52,17 @@ function DashboardPage() {
       const since = new Date();
       since.setMonth(since.getMonth() - 5);
       since.setDate(1);
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("id,date,description,amount,type,category_id,account_id")
-        .gte("date", since.toISOString().slice(0, 10))
-        .order("date", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as Tx[];
+      const rows = await listTransactions({
+        data: { from: since.toISOString().slice(0, 10), limit: 1000, offset: 0 },
+      });
+      return rows as Tx[];
     },
   });
 
   const catQuery = useQuery({
     queryKey: ["categories", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("categories")
-        .select("id,name,emoji,color,kind");
-      if (error) throw error;
-      return (data ?? []) as Category[];
-    },
+    queryFn: async () => (await listCategories()) as Category[],
   });
 
   const txs = txQuery.data ?? [];
@@ -97,8 +88,8 @@ function DashboardPage() {
       const k = `${d.getFullYear()}-${d.getMonth() + 1}`;
       const slot = out.find((o) => o.key === k);
       if (!slot) return;
-      if (t.type === "income") slot.income += Number(t.amount);
-      else slot.expense += Number(t.amount);
+      if (t.type === "income") slot.income += t.amount_cents;
+      else slot.expense += t.amount_cents;
     });
     return out;
   }, [txs, month, year]);
@@ -112,8 +103,12 @@ function DashboardPage() {
     [txs, month, year],
   );
 
-  const income = monthTxs.filter((t) => t.type === "income").reduce((s, t) => s + Number(t.amount), 0);
-  const expense = monthTxs.filter((t) => t.type === "expense").reduce((s, t) => s + Number(t.amount), 0);
+  const income = monthTxs
+    .filter((t) => t.type === "income")
+    .reduce((s, t) => s + t.amount_cents, 0);
+  const expense = monthTxs
+    .filter((t) => t.type === "expense")
+    .reduce((s, t) => s + t.amount_cents, 0);
   const balance = income - expense;
 
   const byCategory = useMemo(() => {
@@ -124,7 +119,7 @@ function DashboardPage() {
         const c = catMap.get(t.category_id!);
         if (!c) return;
         const cur = map.get(c.id) ?? { name: c.name, value: 0, color: c.color };
-        cur.value += Number(t.amount);
+        cur.value += t.amount_cents;
         map.set(c.id, cur);
       });
     return Array.from(map.values()).sort((a, b) => b.value - a.value);
@@ -146,20 +141,28 @@ function DashboardPage() {
         <div className="relative flex flex-col md:flex-row md:items-end md:justify-between gap-4">
           <div>
             <HudLabel>COCKPIT · VISÃO GERAL</HudLabel>
-            <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">Dashboard</h1>
+            <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">
+              Dashboard
+            </h1>
             <p className="text-muted-foreground mt-2 text-sm font-mono">
               [ {monthLabel(month, year).toUpperCase()} ]
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <button onClick={() => shiftMonth(-1)} className="border border-border p-2 hover:border-primary transition-colors">
+            <button
+              onClick={() => shiftMonth(-1)}
+              className="border border-border p-2 hover:border-primary transition-colors"
+            >
               <ChevronLeft className="size-4" />
             </button>
             <div className="border border-border px-4 py-2 text-sm uppercase font-mono bg-background">
               {monthLabel(month, year)}
             </div>
-            <button onClick={() => shiftMonth(1)} className="border border-border p-2 hover:border-primary transition-colors">
+            <button
+              onClick={() => shiftMonth(1)}
+              className="border border-border p-2 hover:border-primary transition-colors"
+            >
               <ChevronRight className="size-4" />
             </button>
             <Link
@@ -192,18 +195,40 @@ function DashboardPage() {
           <div className="flex items-center justify-between mb-4">
             <HudLabel>FLUXO · 6 MESES</HudLabel>
             <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1.5"><span className="size-2 bg-primary" /> Receita</span>
-              <span className="flex items-center gap-1.5"><span className="size-2 bg-[color:var(--flare)]" /> Despesa</span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 bg-primary" /> Receita
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="size-2 bg-[color:var(--flare)]" /> Despesa
+              </span>
             </div>
           </div>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={monthly} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="label" stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} />
-                <YAxis stroke="var(--fg-meta)" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                <XAxis
+                  dataKey="label"
+                  stroke="var(--fg-meta)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  stroke="var(--fg-meta)"
+                  fontSize={11}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `${(v / 100000).toFixed(0)}k`}
+                />
                 <Tooltip
-                  contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, fontFamily: "var(--font-mono)", fontSize: 12 }}
+                  contentStyle={{
+                    background: "var(--surface)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 0,
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                  }}
                   formatter={(v: number) => brl(v)}
                 />
                 <Bar dataKey="income" fill="var(--primary)" />
@@ -221,13 +246,25 @@ function DashboardPage() {
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={byCategory} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} stroke="var(--background)">
+                  <Pie
+                    data={byCategory}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={85}
+                    stroke="var(--background)"
+                  >
                     {byCategory.map((d, i) => (
                       <Cell key={i} fill={d.color || "var(--primary)"} />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 0, fontSize: 12 }}
+                    contentStyle={{
+                      background: "var(--surface)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 0,
+                      fontSize: 12,
+                    }}
                     formatter={(v: number) => brl(v)}
                   />
                 </PieChart>
@@ -252,7 +289,10 @@ function DashboardPage() {
       <BrutalCard className="p-5">
         <div className="flex items-center justify-between mb-4">
           <HudLabel>ÚLTIMAS TRANSAÇÕES</HudLabel>
-          <Link to="/app/transactions" className="text-xs uppercase font-mono text-primary hover:underline">
+          <Link
+            to="/app/transactions"
+            className="text-xs uppercase font-mono text-primary hover:underline"
+          >
             Ver todas →
           </Link>
         </div>
@@ -281,8 +321,12 @@ function DashboardPage() {
                       t.type === "income" ? "text-primary" : "text-[color:var(--flare)]"
                     }`}
                   >
-                    {t.type === "income" ? <ArrowUpRight className="size-3.5" /> : <ArrowDownRight className="size-3.5" />}
-                    {brl(Number(t.amount))}
+                    {t.type === "income" ? (
+                      <ArrowUpRight className="size-3.5" />
+                    ) : (
+                      <ArrowDownRight className="size-3.5" />
+                    )}
+                    {brl(t.amount_cents)}
                   </div>
                 </div>
               );
@@ -305,7 +349,9 @@ function EmptyMini({ text }: { text: string }) {
 function EmptyState() {
   return (
     <div className="text-center py-10">
-      <div className="font-mono text-muted-foreground text-xs uppercase">[ NENHUMA TRANSAÇÃO NO MÊS ]</div>
+      <div className="font-mono text-muted-foreground text-xs uppercase">
+        [ NENHUMA TRANSAÇÃO NO MÊS ]
+      </div>
       <Link
         to="/app/transactions"
         className="mt-4 inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 text-xs uppercase tracking-wider"

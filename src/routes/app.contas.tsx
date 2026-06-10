@@ -1,11 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { errMsg } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  createAccount,
+  deleteAccount,
+  listAccounts,
+  listTransactions,
+  updateAccount,
+} from "@/server/data.fn";
 import { useAuth } from "@/lib/auth";
 import { useMemo, useState } from "react";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
 import { brl } from "@/lib/format";
+import { centsToInput, parseBRLToCents } from "@/lib/money";
 import { Plus, Trash2, X, Pencil, Wallet, CreditCard, PiggyBank, Banknote } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,8 +22,14 @@ export const Route = createFileRoute("/app/contas")({
   component: AccountsPage,
 });
 
-type Account = { id: string; name: string; type: string; color: string; initial_balance: number };
-type Tx = { account_id: string | null; amount: number; type: "income" | "expense" };
+type Account = {
+  id: string;
+  name: string;
+  type: string;
+  color: string;
+  initial_balance_cents: number;
+};
+type Tx = { account_id: string | null; amount_cents: number; type: "income" | "expense" };
 
 const TYPES = [
   { value: "checking", label: "Conta corrente", icon: Banknote },
@@ -33,38 +47,29 @@ function AccountsPage() {
   const { data: accounts = [] } = useQuery({
     queryKey: ["accounts", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("accounts").select("*").order("name");
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+    queryFn: async () => (await listAccounts()) as Account[],
   });
 
   const { data: txs = [] } = useQuery({
     queryKey: ["transactions-for-balances", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("transactions").select("account_id,amount,type");
-      if (error) throw error;
-      return (data ?? []) as Tx[];
-    },
+    queryFn: async () => (await listTransactions({ data: { limit: 1000, offset: 0 } })) as Tx[],
   });
 
   const balances = useMemo(() => {
     const map = new Map<string, number>();
-    accounts.forEach((a) => map.set(a.id, Number(a.initial_balance)));
+    accounts.forEach((a) => map.set(a.id, a.initial_balance_cents));
     txs.forEach((t) => {
       if (!t.account_id) return;
       const cur = map.get(t.account_id) ?? 0;
-      map.set(t.account_id, cur + (t.type === "income" ? Number(t.amount) : -Number(t.amount)));
+      map.set(t.account_id, cur + (t.type === "income" ? t.amount_cents : -t.amount_cents));
     });
     return map;
   }, [accounts, txs]);
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("accounts").delete().eq("id", id);
-      if (error) throw error;
+      await deleteAccount({ data: { id } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -82,7 +87,10 @@ function AccountsPage() {
           <h1 className="font-display text-3xl md:text-5xl uppercase mt-1">Contas</h1>
         </div>
         <button
-          onClick={() => { setEditing(null); setOpen(true); }}
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
           className="inline-flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 text-xs uppercase tracking-wider font-medium"
         >
           <Plus className="size-4" /> Nova
@@ -91,7 +99,9 @@ function AccountsPage() {
 
       <BrutalCard className="p-5 flex items-center justify-between">
         <HudLabel>SALDO CONSOLIDADO</HudLabel>
-        <div className={`font-display text-3xl tabular-nums ${total >= 0 ? "text-primary" : "text-[color:var(--flare)]"}`}>
+        <div
+          className={`font-display text-3xl tabular-nums ${total >= 0 ? "text-primary" : "text-[color:var(--flare)]"}`}
+        >
           {brl(total)}
         </div>
       </BrutalCard>
@@ -105,7 +115,10 @@ function AccountsPage() {
             <BrutalCard key={a.id} className="p-5 group relative">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="size-10 border border-border flex items-center justify-center" style={{ background: `${a.color}25` }}>
+                  <div
+                    className="size-10 border border-border flex items-center justify-center"
+                    style={{ background: `${a.color}25` }}
+                  >
                     <Icon className="size-5" style={{ color: a.color }} />
                   </div>
                   <div>
@@ -114,15 +127,27 @@ function AccountsPage() {
                   </div>
                 </div>
                 <div className="opacity-0 group-hover:opacity-100 flex gap-1">
-                  <button onClick={() => { setEditing(a); setOpen(true); }}><Pencil className="size-3.5" /></button>
-                  <button onClick={() => confirm("Remover conta?") && del.mutate(a.id)} className="hover:text-[color:var(--flare)]">
+                  <button
+                    onClick={() => {
+                      setEditing(a);
+                      setOpen(true);
+                    }}
+                  >
+                    <Pencil className="size-3.5" />
+                  </button>
+                  <button
+                    onClick={() => confirm("Remover conta?") && del.mutate(a.id)}
+                    className="hover:text-[color:var(--flare)]"
+                  >
                     <Trash2 className="size-3.5" />
                   </button>
                 </div>
               </div>
               <div className="mt-4">
                 <HudLabel bracket={false}>SALDO</HudLabel>
-                <div className={`font-display text-2xl mt-1 tabular-nums ${balance >= 0 ? "text-foreground" : "text-[color:var(--flare)]"}`}>
+                <div
+                  className={`font-display text-2xl mt-1 tabular-nums ${balance >= 0 ? "text-foreground" : "text-[color:var(--flare)]"}`}
+                >
                   {brl(balance)}
                 </div>
               </div>
@@ -134,7 +159,6 @@ function AccountsPage() {
       {open && user && (
         <AccountModal
           acc={editing}
-          userId={user.id}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["accounts"] });
@@ -146,59 +170,122 @@ function AccountsPage() {
   );
 }
 
-function AccountModal({ acc, userId, onClose, onSaved }: { acc: Account | null; userId: string; onClose: () => void; onSaved: () => void }) {
+function AccountModal({
+  acc,
+  onClose,
+  onSaved,
+}: {
+  acc: Account | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [name, setName] = useState(acc?.name ?? "");
   const [type, setType] = useState(acc?.type ?? "checking");
   const [color, setColor] = useState(acc?.color ?? "#D1FF00");
-  const [initial, setInitial] = useState(acc ? String(acc.initial_balance) : "0");
+  const [initial, setInitial] = useState(acc ? centsToInput(acc.initial_balance_cents) : "0");
   const [saving, setSaving] = useState(false);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    let initialBalanceCents: number;
+    try {
+      initialBalanceCents = parseBRLToCents(initial || "0");
+    } catch (err) {
+      toast.error(errMsg(err, "Saldo inicial inválido"));
+      return;
+    }
     setSaving(true);
-    const payload = { user_id: userId, name, type, color, initial_balance: Number(initial) };
-    const res = acc
-      ? await supabase.from("accounts").update(payload).eq("id", acc.id)
-      : await supabase.from("accounts").insert(payload);
-    setSaving(false);
-    if (res.error) return toast.error(res.error.message);
-    toast.success("Conta salva");
-    onSaved();
+    const data = {
+      name,
+      type: type as "checking" | "savings" | "credit_card" | "wallet",
+      color,
+      initialBalanceCents,
+    };
+    try {
+      if (acc) await updateAccount({ data: { id: acc.id, data } });
+      else await createAccount({ data });
+      toast.success("Conta salva");
+      onSaved();
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao salvar"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <form onSubmit={save} className="relative w-full max-w-md border border-border bg-[var(--surface)] p-5 space-y-4">
+      <form
+        onSubmit={save}
+        className="relative w-full max-w-md border border-border bg-[var(--surface)] p-5 space-y-4"
+      >
         <div className="flex items-center justify-between">
           <h2 className="font-display text-2xl uppercase">{acc ? "Editar" : "Nova"} conta</h2>
-          <button type="button" onClick={onClose}><X className="size-5" /></button>
+          <button type="button" onClick={onClose}>
+            <X className="size-5" />
+          </button>
         </div>
         <label className="block">
           <span className="hud-label block mb-1.5">Nome</span>
-          <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </label>
         <label className="block">
           <span className="hud-label block mb-1.5">Tipo</span>
-          <select value={type} onChange={(e) => setType(e.target.value)} className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-            {TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+            className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
           </select>
         </label>
         <label className="block">
           <span className="hud-label block mb-1.5">Saldo inicial (R$)</span>
-          <input type="number" step="0.01" value={initial} onChange={(e) => setInitial(e.target.value)} className="w-full bg-transparent border border-border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring" />
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="0,00"
+            value={initial}
+            onChange={(e) => setInitial(e.target.value)}
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </label>
         <div>
           <span className="hud-label block mb-1.5">Cor</span>
           <div className="flex gap-2 flex-wrap">
-            {["#D1FF00","#0099FF","#ED4609","#9C9C9C","#F4F4E8","#22C55E"].map((c) => (
-              <button key={c} type="button" onClick={() => setColor(c)} className={`size-8 border-2 ${color === c ? "border-primary" : "border-border"}`} style={{ background: c }} />
+            {["#D1FF00", "#0099FF", "#ED4609", "#9C9C9C", "#F4F4E8", "#22C55E"].map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => setColor(c)}
+                className={`size-8 border-2 ${color === c ? "border-primary" : "border-border"}`}
+                style={{ background: c }}
+              />
             ))}
           </div>
         </div>
         <div className="flex gap-2 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 border border-border py-2.5 text-xs uppercase tracking-wider">Cancelar</button>
-          <button disabled={saving} className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 border border-border py-2.5 text-xs uppercase tracking-wider"
+          >
+            Cancelar
+          </button>
+          <button
+            disabled={saving}
+            className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium"
+          >
             {saving ? "..." : "Salvar"}
           </button>
         </div>

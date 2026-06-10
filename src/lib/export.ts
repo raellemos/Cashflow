@@ -1,6 +1,5 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
-import { brl } from "./format";
 
 type Cell = string | number;
 
@@ -103,7 +102,13 @@ export function exportPDF(opts: PdfReportOptions) {
     startY: y,
     head: [opts.headers],
     body: opts.rows.map((r) => r.map((c) => (c === null || c === undefined ? "" : String(c)))),
-    styles: { font: "helvetica", fontSize: 9, cellPadding: 5, lineColor: [220, 220, 220], lineWidth: 0.5 },
+    styles: {
+      font: "helvetica",
+      fontSize: 9,
+      cellPadding: 5,
+      lineColor: [220, 220, 220],
+      lineWidth: 0.5,
+    },
     headStyles: { fillColor: [5, 5, 5], textColor: [209, 255, 0], fontStyle: "bold", fontSize: 8 },
     alternateRowStyles: { fillColor: [248, 248, 245] },
     margin: { left: margin, right: margin },
@@ -114,17 +119,13 @@ export function exportPDF(opts: PdfReportOptions) {
       const pageH = doc.internal.pageSize.getHeight();
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
-      doc.text(
-        `Gerado em ${new Date().toLocaleString("pt-BR")}`,
-        margin,
-        pageH - 16,
-      );
-      const pageNum = (doc as unknown as { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+      doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, margin, pageH - 16);
+      const pageNum = (
+        doc as unknown as { internal: { getNumberOfPages: () => number } }
+      ).internal.getNumberOfPages();
       doc.text(`Página ${pageNum}`, pageW - margin, pageH - 16, { align: "right" });
     },
   });
 
   doc.save(opts.filename);
 }
-
-export { brl };

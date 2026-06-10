@@ -1,11 +1,20 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { errMsg } from "@/lib/utils";
 import { zodValidator, fallback } from "@tanstack/zod-adapter";
 import { z } from "zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  createTransaction,
+  deleteTransaction,
+  listAccounts,
+  listCategories,
+  listTransactions,
+  updateTransaction,
+} from "@/server/data.fn";
 import { useAuth } from "@/lib/auth";
 import { useMemo, useState, useEffect } from "react";
 import { brl, fmtDate } from "@/lib/format";
+import { centsToInput, parseBRLToCents } from "@/lib/money";
 import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
 import { ExportMenu } from "@/components/export-menu";
@@ -33,7 +42,7 @@ type Tx = {
   id: string;
   date: string;
   description: string;
-  amount: number;
+  amount_cents: number;
   type: "income" | "expense";
   category_id: string | null;
   account_id: string | null;
@@ -91,37 +100,28 @@ function TransactionsPage() {
     queryKey: ["transactions", user?.id, from, to],
     enabled: !!user,
     queryFn: async () => {
-      let qb = supabase
-        .from("transactions")
-        .select("id,date,description,amount,type,category_id,account_id,notes")
-        .order("date", { ascending: false })
-        .limit(1000);
-      if (from) qb = qb.gte("date", from);
-      if (to) qb = qb.lte("date", to);
-      const { data, error } = await qb;
-      if (error) throw error;
-      return (data ?? []) as Tx[];
+      const rows = await listTransactions({
+        data: {
+          from: from || undefined,
+          to: to || undefined,
+          limit: 1000,
+          offset: 0,
+        },
+      });
+      return rows as Tx[];
     },
   });
 
   const catQuery = useQuery({
     queryKey: ["categories", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("categories").select("id,name,emoji,color,kind");
-      if (error) throw error;
-      return (data ?? []) as Category[];
-    },
+    queryFn: async () => (await listCategories()) as Category[],
   });
 
   const accQuery = useQuery({
     queryKey: ["accounts", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("accounts").select("id,name,color");
-      if (error) throw error;
-      return (data ?? []) as Account[];
-    },
+    queryFn: async () => (await listAccounts()) as Account[],
   });
 
   const txs = txQuery.data ?? [];
@@ -142,8 +142,8 @@ function TransactionsPage() {
     let income = 0;
     let expense = 0;
     filtered.forEach((t) => {
-      if (t.type === "income") income += Number(t.amount);
-      else expense += Number(t.amount);
+      if (t.type === "income") income += t.amount_cents;
+      else expense += t.amount_cents;
     });
     return { income, expense, net: income - expense };
   }, [filtered]);
@@ -181,7 +181,7 @@ function TransactionsPage() {
         t.type === "income" ? "Receita" : "Despesa",
         c?.name ?? "",
         a?.name ?? "",
-        Number(t.amount).toFixed(2).replace(".", ","),
+        centsToInput(t.amount_cents),
       ];
     });
 
@@ -219,7 +219,7 @@ function TransactionsPage() {
         t.description,
         c?.name ?? "—",
         a?.name ?? "—",
-        `${sign} ${brl(Number(t.amount))}`,
+        `${sign} ${brl(t.amount_cents)}`,
       ];
     });
     exportPDF({
@@ -228,8 +228,8 @@ function TransactionsPage() {
       meta: {
         Registros: String(filtered.length),
         Tipo: type === "all" ? "Todos" : type === "income" ? "Receitas" : "Despesas",
-        Categoria: categoryId ? cats.find((c) => c.id === categoryId)?.name ?? "—" : "Todas",
-        Conta: accountId ? accs.find((a) => a.id === accountId)?.name ?? "—" : "Todas",
+        Categoria: categoryId ? (cats.find((c) => c.id === categoryId)?.name ?? "—") : "Todas",
+        Conta: accountId ? (accs.find((a) => a.id === accountId)?.name ?? "—") : "Todas",
         ...(q ? { Busca: q } : {}),
       },
       summary: [
@@ -245,11 +245,9 @@ function TransactionsPage() {
     toast.success("PDF gerado");
   };
 
-
   const del = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("transactions").delete().eq("id", id);
-      if (error) throw error;
+      await deleteTransaction({ data: { id } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["transactions"] });
@@ -266,13 +264,19 @@ function TransactionsPage() {
         <div className="relative flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <HudLabel>OPERAÇÕES · LEDGER</HudLabel>
-            <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">Transações</h1>
+            <h1 className="font-display text-3xl md:text-5xl uppercase mt-1 tracking-tight">
+              Transações
+            </h1>
             <p className="text-muted-foreground mt-2 text-sm font-mono">
               [ {filtered.length.toString().padStart(4, "0")} REGISTROS · NET {brl(totals.net)} ]
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <ExportMenu onCSV={handleExportCSV} onPDF={handleExportPDF} disabled={!filtered.length} />
+            <ExportMenu
+              onCSV={handleExportCSV}
+              onPDF={handleExportPDF}
+              disabled={!filtered.length}
+            />
             <button
               onClick={shareUrl}
               className="inline-flex items-center gap-2 border border-border text-foreground px-3 py-2.5 text-xs uppercase tracking-wider font-medium hover:border-primary hover:text-primary transition-colors"
@@ -296,7 +300,9 @@ function TransactionsPage() {
       {/* Filters */}
       <BrutalCard className="p-4 space-y-4">
         <div className="flex items-center justify-between">
-          <HudLabel>FILTROS{activeFiltersCount > 0 ? ` · ${activeFiltersCount} ATIVOS` : ""}</HudLabel>
+          <HudLabel>
+            FILTROS{activeFiltersCount > 0 ? ` · ${activeFiltersCount} ATIVOS` : ""}
+          </HudLabel>
           {activeFiltersCount > 0 && (
             <button
               onClick={clearFilters}
@@ -421,15 +427,21 @@ function TransactionsPage() {
       <div className="grid grid-cols-3 gap-px bg-border">
         <div className="bg-background p-4">
           <div className="hud-label">Receitas no recorte</div>
-          <div className="font-mono tabular-nums text-lg md:text-xl text-primary mt-1">{brl(totals.income)}</div>
+          <div className="font-mono tabular-nums text-lg md:text-xl text-primary mt-1">
+            {brl(totals.income)}
+          </div>
         </div>
         <div className="bg-background p-4">
           <div className="hud-label">Despesas no recorte</div>
-          <div className="font-mono tabular-nums text-lg md:text-xl text-[color:var(--flare)] mt-1">{brl(totals.expense)}</div>
+          <div className="font-mono tabular-nums text-lg md:text-xl text-[color:var(--flare)] mt-1">
+            {brl(totals.expense)}
+          </div>
         </div>
         <div className="bg-background p-4">
           <div className="hud-label">Saldo</div>
-          <div className={`font-mono tabular-nums text-lg md:text-xl mt-1 ${totals.net >= 0 ? "text-primary" : "text-[color:var(--flare)]"}`}>
+          <div
+            className={`font-mono tabular-nums text-lg md:text-xl mt-1 ${totals.net >= 0 ? "text-primary" : "text-[color:var(--flare)]"}`}
+          >
             {brl(totals.net)}
           </div>
         </div>
@@ -447,7 +459,9 @@ function TransactionsPage() {
                 <tr className="border-b border-border">
                   <th className="hud-label text-left px-4 py-2.5">Data</th>
                   <th className="hud-label text-left px-4 py-2.5">Descrição</th>
-                  <th className="hud-label text-left px-4 py-2.5 hidden md:table-cell">Categoria</th>
+                  <th className="hud-label text-left px-4 py-2.5 hidden md:table-cell">
+                    Categoria
+                  </th>
                   <th className="hud-label text-left px-4 py-2.5 hidden lg:table-cell">Conta</th>
                   <th className="hud-label text-right px-4 py-2.5">Valor</th>
                   <th className="px-4 py-2.5 w-20" />
@@ -458,7 +472,10 @@ function TransactionsPage() {
                   const c = t.category_id ? catMap.get(t.category_id) : null;
                   const a = t.account_id ? accMap.get(t.account_id) : null;
                   return (
-                    <tr key={t.id} className="border-b border-border last:border-0 hover:bg-[var(--surface-elevated)]/40 transition-colors group">
+                    <tr
+                      key={t.id}
+                      className="border-b border-border last:border-0 hover:bg-[var(--surface-elevated)]/40 transition-colors group"
+                    >
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground whitespace-nowrap">
                         {fmtDate(t.date)}
                       </td>
@@ -488,7 +505,7 @@ function TransactionsPage() {
                           t.type === "income" ? "text-primary" : "text-[color:var(--flare)]"
                         }`}
                       >
-                        {t.type === "income" ? "+" : "−"} {brl(Number(t.amount))}
+                        {t.type === "income" ? "+" : "−"} {brl(t.amount_cents)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
@@ -531,7 +548,6 @@ function TransactionsPage() {
             qc.invalidateQueries({ queryKey: ["dashboard-tx"] });
             setOpen(false);
           }}
-          userId={user!.id}
         />
       )}
     </div>
@@ -542,20 +558,18 @@ function TxModal({
   tx,
   categories,
   accounts,
-  userId,
   onClose,
   onSaved,
 }: {
   tx: Tx | null;
   categories: Category[];
   accounts: Account[];
-  userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [type, setType] = useState<"income" | "expense">(tx?.type ?? "expense");
   const [description, setDescription] = useState(tx?.description ?? "");
-  const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
+  const [amount, setAmount] = useState(tx ? centsToInput(tx.amount_cents) : "");
   const [date, setDate] = useState(tx?.date ?? new Date().toISOString().slice(0, 10));
   const [categoryId, setCategoryId] = useState<string>(tx?.category_id ?? "");
   const [accountId, setAccountId] = useState<string>(tx?.account_id ?? accounts[0]?.id ?? "");
@@ -575,27 +589,34 @@ function TxModal({
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSaving(true);
-    const payload = {
-      user_id: userId,
-      description,
-      amount: Number(amount),
-      type,
-      date,
-      category_id: categoryId || null,
-      account_id: accountId || null,
-      notes: notes || null,
-    };
-    const res = tx
-      ? await supabase.from("transactions").update(payload).eq("id", tx.id)
-      : await supabase.from("transactions").insert(payload);
-    setSaving(false);
-    if (res.error) {
-      toast.error(res.error.message);
+    let amountCents: number;
+    try {
+      amountCents = parseBRLToCents(amount);
+      if (amountCents <= 0) throw new Error("Valor deve ser maior que zero");
+    } catch (err) {
+      toast.error(errMsg(err, "Valor inválido"));
       return;
     }
-    toast.success(tx ? "Transação atualizada" : "Transação criada");
-    onSaved();
+    setSaving(true);
+    const data = {
+      description,
+      amountCents,
+      type,
+      date,
+      categoryId: categoryId || null,
+      accountId: accountId || null,
+      notes: notes || null,
+    };
+    try {
+      if (tx) await updateTransaction({ data: { id: tx.id, data } });
+      else await createTransaction({ data });
+      toast.success(tx ? "Transação atualizada" : "Transação criada");
+      onSaved();
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao salvar"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -646,9 +667,9 @@ function TxModal({
             <Field label="Valor (R$)">
               <input
                 required
-                type="number"
-                step="0.01"
-                min="0"
+                type="text"
+                inputMode="decimal"
+                placeholder="0,00"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className="w-full bg-transparent border border-border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"

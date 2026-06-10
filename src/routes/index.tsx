@@ -1,20 +1,22 @@
 import { createFileRoute, Link, useNavigate, redirect } from "@tanstack/react-router";
+import { errMsg } from "@/lib/utils";
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { login, me, register } from "@/server/auth.fn";
 import { toast } from "sonner";
 import { HudLabel } from "@/components/hud-label";
 
 export const Route = createFileRoute("/")({
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getSession();
-    if (data.session) throw redirect({ to: "/app/dashboard" });
+    const user = await me();
+    if (user) throw redirect({ to: "/app/dashboard" });
   },
   head: () => ({
     meta: [
       { title: "CashFlow — Cockpit financeiro pessoal" },
       {
         name: "description",
-        content: "Entre no CashFlow. Brutalismo, lime e zero enrolação no controle do seu dinheiro.",
+        content:
+          "Entre no CashFlow. Brutalismo, lime e zero enrolação no controle do seu dinheiro.",
       },
     ],
   }),
@@ -42,24 +44,16 @@ function LandingLogin() {
     setLoading(true);
     try {
       if (mode === "signup") {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: window.location.origin,
-            data: { display_name: name || email.split("@")[0] },
-          },
+        await register({
+          data: { email, password, displayName: name || undefined },
         });
-        if (error) throw error;
-        toast.success("Conta criada. Verifique seu e-mail e entre.");
-        setMode("login");
+        toast.success("Conta criada. Bem-vindo!");
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        navigate({ to: "/app/dashboard" });
+        await login({ data: { email, password } });
       }
-    } catch (err: any) {
-      toast.error(err.message ?? "Erro ao autenticar");
+      navigate({ to: "/app/dashboard" });
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao autenticar"));
     } finally {
       setLoading(false);
     }
@@ -86,15 +80,17 @@ function LandingLogin() {
             Controle <span className="text-primary">total</span> do seu fluxo.
           </h1>
           <p className="text-muted-foreground text-base md:text-lg max-w-lg">
-            Receitas, despesas, metas, cartões e plano de quitação em um único cockpit.
-            Brutalista, rápido e sem distrações.
+            Receitas, despesas, metas, cartões e plano de quitação em um único cockpit. Brutalista,
+            rápido e sem distrações.
           </p>
           <div className="flex flex-wrap gap-2">
-            {["RECEITAS", "DESPESAS", "ORÇAMENTOS", "METAS", "RELATÓRIOS", "PLANO DE AÇÃO"].map((t) => (
-              <span key={t} className="hud-label border border-border px-2.5 py-1.5">
-                {t}
-              </span>
-            ))}
+            {["RECEITAS", "DESPESAS", "ORÇAMENTOS", "METAS", "RELATÓRIOS", "PLANO DE AÇÃO"].map(
+              (t) => (
+                <span key={t} className="hud-label border border-border px-2.5 py-1.5">
+                  {t}
+                </span>
+              ),
+            )}
           </div>
         </div>
 
@@ -168,7 +164,7 @@ function LandingLogin() {
               <input
                 type="password"
                 required
-                minLength={6}
+                minLength={8}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
@@ -185,7 +181,10 @@ function LandingLogin() {
             </button>
 
             <div className="flex items-center justify-between pt-2">
-              <Link to="/recuperar-senha" className="text-xs text-muted-foreground hover:text-primary uppercase tracking-wider font-mono">
+              <Link
+                to="/recuperar-senha"
+                className="text-xs text-muted-foreground hover:text-primary uppercase tracking-wider font-mono"
+              >
                 Esqueci a senha
               </Link>
               <span className="hud-label">SSL · 256</span>

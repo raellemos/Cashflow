@@ -10,7 +10,5 @@ export function HudLabel({
   className?: string;
   bracket?: boolean;
 }) {
-  return (
-    <span className={cn("hud-label", bracket && "hud-bracket", className)}>{children}</span>
-  );
+  return <span className={cn("hud-label", bracket && "hud-bracket", className)}>{children}</span>;
 }

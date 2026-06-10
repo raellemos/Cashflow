@@ -46,7 +46,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { title: "CashFlow — Controle total do seu fluxo" },
       {
         name: "description",
-        content: "CashFlow: cockpit financeiro pessoal. Receitas, despesas, metas e plano de ação para sair do vermelho.",
+        content:
+          "CashFlow: cockpit financeiro pessoal. Receitas, despesas, metas e plano de ação para sair do vermelho.",
       },
       { name: "theme-color", content: "#050505" },
       { property: "og:title", content: "CashFlow — Controle total do seu fluxo" },
@@ -57,11 +58,31 @@ export const Route = createRootRouteWithContext<RouterContext>()({
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
       { name: "twitter:title", content: "CashFlow — Controle total do seu fluxo" },
-      { name: "description", content: "CashFlow is a personal finance management application that allows users to track income and expenses." },
-      { property: "og:description", content: "CashFlow is a personal finance management application that allows users to track income and expenses." },
-      { name: "twitter:description", content: "CashFlow is a personal finance management application that allows users to track income and expenses." },
-      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7174528a-a4dc-4026-be7f-7a73512caae6/id-preview-b05edc95--91d70eda-b64f-4e97-abb5-bebbcf1aa457.lovable.app-1778072967495.png" },
-      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7174528a-a4dc-4026-be7f-7a73512caae6/id-preview-b05edc95--91d70eda-b64f-4e97-abb5-bebbcf1aa457.lovable.app-1778072967495.png" },
+      {
+        name: "description",
+        content:
+          "CashFlow is a personal finance management application that allows users to track income and expenses.",
+      },
+      {
+        property: "og:description",
+        content:
+          "CashFlow is a personal finance management application that allows users to track income and expenses.",
+      },
+      {
+        name: "twitter:description",
+        content:
+          "CashFlow is a personal finance management application that allows users to track income and expenses.",
+      },
+      {
+        property: "og:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7174528a-a4dc-4026-be7f-7a73512caae6/id-preview-b05edc95--91d70eda-b64f-4e97-abb5-bebbcf1aa457.lovable.app-1778072967495.png",
+      },
+      {
+        name: "twitter:image",
+        content:
+          "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/7174528a-a4dc-4026-be7f-7a73512caae6/id-preview-b05edc95--91d70eda-b64f-4e97-abb5-bebbcf1aa457.lovable.app-1778072967495.png",
+      },
     ],
     links: [
       { rel: "stylesheet", href: appCss },

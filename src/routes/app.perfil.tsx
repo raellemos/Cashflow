@@ -1,6 +1,6 @@
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { errMsg } from "@/lib/utils";
+import { changePassword, logout as logoutFn, updateProfile } from "@/server/auth.fn";
 import { useAuth } from "@/lib/auth";
 import { useEffect, useState } from "react";
 import { HudLabel } from "@/components/hud-label";
@@ -14,50 +14,49 @@ export const Route = createFileRoute("/app/perfil")({
 });
 
 function ProfilePage() {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const router = useRouter();
-  const qc = useQueryClient();
   const [displayName, setDisplayName] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const { data: profile } = useQuery({
-    queryKey: ["profile", user?.id],
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("*").eq("id", user!.id).maybeSingle();
-      if (error) throw error;
-      return data;
-    },
-  });
-
   useEffect(() => {
-    if (profile) setDisplayName(profile.display_name ?? "");
-  }, [profile]);
+    if (user) setDisplayName(user.displayName ?? "");
+  }, [user]);
 
   const saveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const { error } = await supabase.from("profiles").update({ display_name: displayName }).eq("id", user!.id);
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    toast.success("Perfil atualizado");
-    qc.invalidateQueries({ queryKey: ["profile"] });
+    try {
+      await updateProfile({ data: { displayName } });
+      toast.success("Perfil atualizado");
+      await refresh();
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao salvar"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const changePass = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (password.length < 6) return toast.error("Senha precisa ter pelo menos 6 caracteres");
+    if (password.length < 8) return toast.error("Senha precisa ter pelo menos 8 caracteres");
     setSaving(true);
-    const { error } = await supabase.auth.updateUser({ password });
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    toast.success("Senha alterada");
-    setPassword("");
+    try {
+      await changePassword({ data: { currentPassword, newPassword: password } });
+      toast.success("Senha alterada");
+      setPassword("");
+      setCurrentPassword("");
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao alterar senha"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    await logoutFn();
     router.navigate({ to: "/" });
   };
 
@@ -85,8 +84,15 @@ function ProfilePage() {
       <BrutalCard className="p-5">
         <form onSubmit={saveProfile} className="space-y-3">
           <HudLabel>NOME DE EXIBIÇÃO</HudLabel>
-          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <button disabled={saving} className="bg-primary text-primary-foreground px-4 py-2 text-xs uppercase tracking-wider font-medium">
+          <input
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            disabled={saving}
+            className="bg-primary text-primary-foreground px-4 py-2 text-xs uppercase tracking-wider font-medium"
+          >
             {saving ? "Salvando..." : "Salvar"}
           </button>
         </form>
@@ -94,9 +100,27 @@ function ProfilePage() {
 
       <BrutalCard className="p-5">
         <form onSubmit={changePass} className="space-y-3">
-          <HudLabel>NOVA SENHA</HudLabel>
-          <input type="password" minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-          <button disabled={saving || password.length < 6} className="bg-primary text-primary-foreground px-4 py-2 text-xs uppercase tracking-wider font-medium disabled:opacity-50">
+          <HudLabel>ALTERAR SENHA</HudLabel>
+          <input
+            type="password"
+            required
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            placeholder="Senha atual"
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <input
+            type="password"
+            minLength={8}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Nova senha (mín. 8)"
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          <button
+            disabled={saving || password.length < 8 || !currentPassword}
+            className="bg-primary text-primary-foreground px-4 py-2 text-xs uppercase tracking-wider font-medium disabled:opacity-50"
+          >
             Atualizar senha
           </button>
         </form>
@@ -104,7 +128,10 @@ function ProfilePage() {
 
       <BrutalCard className="p-5 border-[color:var(--flare)]/40">
         <HudLabel>ZONA DE PERIGO</HudLabel>
-        <button onClick={logout} className="mt-3 inline-flex items-center gap-2 bg-[color:var(--flare)] text-white px-4 py-2 text-xs uppercase tracking-wider font-medium">
+        <button
+          onClick={logout}
+          className="mt-3 inline-flex items-center gap-2 bg-[color:var(--flare)] text-white px-4 py-2 text-xs uppercase tracking-wider font-medium"
+        >
           <LogOut className="size-3.5" /> Encerrar sessão
         </button>
       </BrutalCard>

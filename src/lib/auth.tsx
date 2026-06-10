@@ -1,33 +1,37 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { createContext, useContext, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { me } from "@/server/auth.fn";
 
-type AuthCtx = {
-  user: User | null;
-  session: Session | null;
-  loading: boolean;
+export type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string | null;
+  createdAt: string;
 };
 
-const Ctx = createContext<AuthCtx>({ user: null, session: null, loading: true });
+type AuthCtx = {
+  user: AuthUser | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+};
+
+const Ctx = createContext<AuthCtx>({ user: null, loading: true, refresh: async () => {} });
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: () => me(),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s);
-      setLoading(false);
-    });
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
-    return () => sub.subscription.unsubscribe();
-  }, []);
+  const refresh = async () => {
+    await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+  };
 
   return (
-    <Ctx.Provider value={{ user: session?.user ?? null, session, loading }}>
+    <Ctx.Provider value={{ user: data ?? null, loading: isLoading, refresh }}>
       {children}
     </Ctx.Provider>
   );

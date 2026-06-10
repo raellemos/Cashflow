@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { errMsg } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { createCategory, deleteCategory, listCategories, updateCategory } from "@/server/data.fn";
 import { useAuth } from "@/lib/auth";
 import { useState } from "react";
 import { HudLabel } from "@/components/hud-label";
@@ -26,17 +27,12 @@ function CategoriesPage() {
   const { data: cats = [] } = useQuery({
     queryKey: ["categories", user?.id],
     enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase.from("categories").select("*").order("kind").order("name");
-      if (error) throw error;
-      return (data ?? []) as Category[];
-    },
+    queryFn: async () => (await listCategories()) as Category[],
   });
 
   const del = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("categories").delete().eq("id", id);
-      if (error) throw error;
+      await deleteCategory({ data: { id } });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["categories"] });
@@ -88,7 +84,13 @@ function CategoriesPage() {
                   </div>
                 </div>
                 <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                  <button onClick={() => { setEditing(c); setOpen(true); }} className="p-1 hover:text-primary">
+                  <button
+                    onClick={() => {
+                      setEditing(c);
+                      setOpen(true);
+                    }}
+                    className="p-1 hover:text-primary"
+                  >
                     <Pencil className="size-3.5" />
                   </button>
                   <button
@@ -112,7 +114,6 @@ function CategoriesPage() {
       {open && user && (
         <CatModal
           cat={editing}
-          userId={user.id}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["categories"] });
@@ -126,54 +127,76 @@ function CategoriesPage() {
 
 function CatModal({
   cat,
-  userId,
   onClose,
   onSaved,
 }: {
   cat: Category | null;
-  userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [name, setName] = useState(cat?.name ?? "");
   const [emoji, setEmoji] = useState(cat?.emoji ?? "💸");
   const [color, setColor] = useState(cat?.color ?? "#D1FF00");
-  const [kind, setKind] = useState<"income" | "expense">((cat?.kind as any) ?? "expense");
+  const [kind, setKind] = useState<"income" | "expense">(
+    cat?.kind === "income" ? "income" : "expense",
+  );
   const [saving, setSaving] = useState(false);
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    const payload = { user_id: userId, name, emoji, color, kind };
-    const res = cat
-      ? await supabase.from("categories").update(payload).eq("id", cat.id)
-      : await supabase.from("categories").insert(payload);
-    setSaving(false);
-    if (res.error) return toast.error(res.error.message);
-    toast.success("Categoria salva");
-    onSaved();
+    const data = { name, emoji, color, kind };
+    try {
+      if (cat) await updateCategory({ data: { id: cat.id, data } });
+      else await createCategory({ data });
+      toast.success("Categoria salva");
+      onSaved();
+    } catch (err) {
+      toast.error(errMsg(err, "Erro ao salvar"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <form onSubmit={save} className="relative w-full max-w-md border border-border bg-[var(--surface)] p-5 space-y-4">
+      <form
+        onSubmit={save}
+        className="relative w-full max-w-md border border-border bg-[var(--surface)] p-5 space-y-4"
+      >
         <div className="flex items-center justify-between">
           <h2 className="font-display text-2xl uppercase">{cat ? "Editar" : "Nova"} categoria</h2>
-          <button type="button" onClick={onClose}><X className="size-5" /></button>
+          <button type="button" onClick={onClose}>
+            <X className="size-5" />
+          </button>
         </div>
         <label className="block">
           <span className="hud-label block mb-1.5">Nome</span>
-          <input required value={name} onChange={(e) => setName(e.target.value)} className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
             <span className="hud-label block mb-1.5">Emoji</span>
-            <input value={emoji} onChange={(e) => setEmoji(e.target.value)} maxLength={2} className="w-full bg-transparent border border-border px-3 py-2.5 text-2xl text-center focus:outline-none focus:ring-2 focus:ring-ring" />
+            <input
+              value={emoji}
+              onChange={(e) => setEmoji(e.target.value)}
+              maxLength={2}
+              className="w-full bg-transparent border border-border px-3 py-2.5 text-2xl text-center focus:outline-none focus:ring-2 focus:ring-ring"
+            />
           </label>
           <label className="block">
             <span className="hud-label block mb-1.5">Tipo</span>
-            <select value={kind} onChange={(e) => setKind(e.target.value as any)} className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <select
+              value={kind}
+              onChange={(e) => setKind(e.target.value === "income" ? "income" : "expense")}
+              className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
               <option value="expense">Despesa</option>
               <option value="income">Receita</option>
             </select>
@@ -194,8 +217,17 @@ function CatModal({
           </div>
         </div>
         <div className="flex gap-2 pt-2">
-          <button type="button" onClick={onClose} className="flex-1 border border-border py-2.5 text-xs uppercase tracking-wider">Cancelar</button>
-          <button disabled={saving} className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 border border-border py-2.5 text-xs uppercase tracking-wider"
+          >
+            Cancelar
+          </button>
+          <button
+            disabled={saving}
+            className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium"
+          >
             {saving ? "..." : "Salvar"}
           </button>
         </div>

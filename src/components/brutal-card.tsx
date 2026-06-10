@@ -11,12 +11,13 @@ export function BrutalCard({
   tone?: "surface" | "elevated" | "canvas";
 }) {
   const bg =
-    tone === "canvas" ? "bg-background" : tone === "elevated" ? "bg-[var(--surface-elevated)]" : "bg-[var(--surface)]";
+    tone === "canvas"
+      ? "bg-background"
+      : tone === "elevated"
+        ? "bg-[var(--surface-elevated)]"
+        : "bg-[var(--surface)]";
   return (
-    <div
-      {...rest}
-      className={cn("border border-border", bg, "relative", className)}
-    >
+    <div {...rest} className={cn("border border-border", bg, "relative", className)}>
       {children}
     </div>
   );

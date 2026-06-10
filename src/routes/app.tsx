@@ -1,5 +1,12 @@
-import { createFileRoute, Outlet, Link, redirect, useRouter, useLocation } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
+import {
+  createFileRoute,
+  Outlet,
+  Link,
+  redirect,
+  useRouter,
+  useLocation,
+} from "@tanstack/react-router";
+import { logout as logoutFn, me } from "@/server/auth.fn";
 import { useAuth } from "@/lib/auth";
 import { useEffect, useState } from "react";
 import {
@@ -22,8 +29,8 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/app")({
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getSession();
-    if (!data.session) throw redirect({ to: "/" });
+    const user = await me();
+    if (!user) throw redirect({ to: "/" });
   },
   component: AppLayout,
 });
@@ -49,7 +56,7 @@ function AppLayout() {
   useEffect(() => setOpenMobile(false), [location.pathname]);
 
   const logout = async () => {
-    await supabase.auth.signOut();
+    await logoutFn();
     toast.success("Sessão encerrada.");
     router.navigate({ to: "/" });
   };
@@ -58,7 +65,11 @@ function AppLayout() {
     <div className="min-h-screen bg-background text-foreground flex">
       {/* Sidebar (desktop) */}
       <aside className="hidden lg:flex w-64 shrink-0 border-r border-border flex-col bg-[var(--surface)] sticky top-0 h-screen">
-        <SidebarContent currentPath={location.pathname} onLogout={logout} email={user?.email ?? ""} />
+        <SidebarContent
+          currentPath={location.pathname}
+          onLogout={logout}
+          email={user?.email ?? ""}
+        />
       </aside>
 
       {/* Sidebar (mobile drawer) */}
@@ -66,7 +77,11 @@ function AppLayout() {
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/70" onClick={() => setOpenMobile(false)} />
           <aside className="absolute left-0 top-0 h-full w-72 border-r border-border bg-[var(--surface)] flex flex-col">
-            <SidebarContent currentPath={location.pathname} onLogout={logout} email={user?.email ?? ""} />
+            <SidebarContent
+              currentPath={location.pathname}
+              onLogout={logout}
+              email={user?.email ?? ""}
+            />
           </aside>
         </div>
       )}
@@ -113,7 +128,9 @@ function SidebarContent({
           <div className="size-8 bg-primary" />
           <div className="leading-none">
             <div className="font-display uppercase text-lg">CashFlow</div>
-            <div className="hud-label" style={{ fontSize: 9 }}>COCKPIT</div>
+            <div className="hud-label" style={{ fontSize: 9 }}>
+              COCKPIT
+            </div>
           </div>
         </Link>
       </div>

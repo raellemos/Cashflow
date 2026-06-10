@@ -26,7 +26,11 @@ export function KpiTile({
           : "text-foreground";
 
   const formatted =
-    format === "currency" ? brl(value) : format === "score" ? String(Math.round(value)) : value.toLocaleString("pt-BR");
+    format === "currency"
+      ? brl(value)
+      : format === "score"
+        ? String(Math.round(value))
+        : value.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 
   return (
     <BrutalCard className="p-5">

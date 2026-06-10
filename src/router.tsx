@@ -8,12 +8,8 @@ function DefaultErrorComponent({ error, reset }: { error: Error; reset: () => vo
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="max-w-md text-center border border-border p-8 bg-[var(--surface)]">
         <p className="hud-label hud-bracket text-[color:var(--flare)]">SISTEMA · FALHA</p>
-        <h1 className="font-display text-3xl text-foreground mt-4 uppercase">
-          Ocorreu uma falha
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Algo travou no fluxo. Tente novamente.
-        </p>
+        <h1 className="font-display text-3xl text-foreground mt-4 uppercase">Ocorreu uma falha</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Algo travou no fluxo. Tente novamente.</p>
         {import.meta.env.DEV && error.message && (
           <pre className="mt-4 max-h-40 overflow-auto border border-border p-3 text-left font-mono text-xs text-[color:var(--flare)]">
             {error.message}
