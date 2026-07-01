@@ -24,7 +24,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { TrendingDown, TrendingUp, Minus } from "lucide-react";
+
 
 export const Route = createFileRoute("/app/insights")({
   head: () => ({
