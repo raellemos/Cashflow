@@ -539,10 +539,46 @@ function TransactionsPage() {
   );
 }
 
+const txSchema = z.object({
+  description: z
+    .string()
+    .trim()
+    .min(2, "Descreva com pelo menos 2 caracteres")
+    .max(140, "Máximo de 140 caracteres"),
+  amount: z
+    .number({ invalid_type_error: "Informe um valor numérico" })
+    .positive("O valor deve ser maior que zero")
+    .max(9_999_999, "Valor excede o limite permitido"),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida")
+    .refine((d) => {
+      const t = new Date(d + "T00:00:00");
+      const max = new Date();
+      max.setFullYear(max.getFullYear() + 1);
+      return !isNaN(t.getTime()) && t <= max;
+    }, "Data fora do intervalo permitido"),
+  type: z.enum(["income", "expense"]),
+  categoryId: z.string(),
+  accountId: z.string().min(1, "Selecione uma conta"),
+  notes: z.string().max(500, "Máximo de 500 caracteres").optional(),
+});
+
+type FieldErrors = Partial<Record<"description" | "amount" | "date" | "accountId" | "categoryId" | "notes", string>>;
+
+// Parse "1.234,56" ou "1234.56" para número
+function parseAmount(v: string): number {
+  if (!v) return NaN;
+  const cleaned = v.replace(/\s|R\$/gi, "").replace(/\./g, "").replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function TxModal({
   tx,
   categories,
   accounts,
+  recentDescriptions,
   userId,
   onClose,
   onSaved,
@@ -550,42 +586,100 @@ function TxModal({
   tx: Tx | null;
   categories: Category[];
   accounts: Account[];
+  recentDescriptions: string[];
   userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [type, setType] = useState<"income" | "expense">(tx?.type ?? "expense");
   const [description, setDescription] = useState(tx?.description ?? "");
-  const [amount, setAmount] = useState(tx ? String(tx.amount) : "");
+  const [amount, setAmount] = useState(tx ? String(tx.amount).replace(".", ",") : "");
   const [date, setDate] = useState(tx?.date ?? new Date().toISOString().slice(0, 10));
   const [categoryId, setCategoryId] = useState<string>(tx?.category_id ?? "");
   const [accountId, setAccountId] = useState<string>(tx?.account_id ?? accounts[0]?.id ?? "");
   const [notes, setNotes] = useState(tx?.notes ?? "");
   const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const [dismissedSuggestion, setDismissedSuggestion] = useState(false);
 
-  // Auto-categorization suggestion
+  // Sugestão inteligente por descrição (categoria + tipo)
+  const suggestion = useMemo(() => {
+    if (description.trim().length < 3) return null;
+    return suggestCategoryDetailed(description);
+  }, [description]);
+
+  const suggestedCategory = useMemo(() => {
+    if (!suggestion) return null;
+    return categories.find(
+      (c) => c.name.toLowerCase() === suggestion.category.toLowerCase() && c.kind === suggestion.kind,
+    );
+  }, [suggestion, categories]);
+
+  // Auto-preenche categoria apenas quando o campo está vazio (não sobrescreve escolha do usuário)
   useEffect(() => {
     if (tx) return;
-    const suggested = suggestCategory(description);
-    if (!suggested) return;
-    const found = categories.find((c) => c.name.toLowerCase() === suggested.toLowerCase());
-    if (found) setCategoryId(found.id);
-  }, [description, categories, tx]);
+    if (!suggestedCategory || categoryId) return;
+    setCategoryId(suggestedCategory.id);
+    if (suggestion && suggestion.kind !== type) setType(suggestion.kind);
+    setDismissedSuggestion(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedCategory?.id]);
+
+  // Se trocar tipo e categoria atual não bater, limpa
+  useEffect(() => {
+    if (!categoryId) return;
+    const c = categories.find((c) => c.id === categoryId);
+    if (c && c.kind !== type) setCategoryId("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [type]);
+
+  const applySuggestion = () => {
+    if (!suggestion || !suggestedCategory) return;
+    if (suggestion.kind !== type) setType(suggestion.kind);
+    setCategoryId(suggestedCategory.id);
+    setDismissedSuggestion(true);
+    toast.success(`Categoria "${suggestedCategory.name}" aplicada`);
+  };
 
   const filteredCats = categories.filter((c) => c.kind === type);
 
+  const validate = (): FieldErrors => {
+    const parsed = txSchema.safeParse({
+      description,
+      amount: parseAmount(amount),
+      date,
+      type,
+      categoryId,
+      accountId,
+      notes: notes || undefined,
+    });
+    if (parsed.success) return {};
+    const out: FieldErrors = {};
+    for (const issue of parsed.error.issues) {
+      const key = issue.path[0] as keyof FieldErrors;
+      if (key && !out[key]) out[key] = issue.message;
+    }
+    return out;
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length) {
+      toast.error("Revise os campos destacados");
+      return;
+    }
     setSaving(true);
     const payload = {
       user_id: userId,
-      description,
-      amount: Number(amount),
+      description: description.trim(),
+      amount: parseAmount(amount),
       type,
       date,
       category_id: categoryId || null,
       account_id: accountId || null,
-      notes: notes || null,
+      notes: notes.trim() || null,
     };
     const res = tx
       ? await supabase.from("transactions").update(payload).eq("id", tx.id)
@@ -598,6 +692,15 @@ function TxModal({
     toast.success(tx ? "Transação atualizada" : "Transação criada");
     onSaved();
   };
+
+  const showSuggestionChip =
+    !tx &&
+    suggestion &&
+    suggestedCategory &&
+    !dismissedSuggestion &&
+    (categoryId !== suggestedCategory.id || type !== suggestion.kind);
+
+  const noAccounts = accounts.length === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -613,7 +716,16 @@ function TxModal({
           </button>
         </div>
 
-        <form onSubmit={submit} className="p-5 space-y-4">
+        <form onSubmit={submit} noValidate className="p-5 space-y-4">
+          {noAccounts && (
+            <div className="border border-[color:var(--flare)] bg-[color:var(--flare)]/10 p-3 flex items-start gap-2 text-xs">
+              <AlertCircle className="size-4 shrink-0 text-[color:var(--flare)] mt-0.5" />
+              <span>
+                Cadastre uma conta antes de registrar transações — vá em <b>Contas</b>.
+              </span>
+            </div>
+          )}
+
           <div className="flex border border-border">
             {(["expense", "income"] as const).map((k) => (
               <button
@@ -633,47 +745,110 @@ function TxModal({
             ))}
           </div>
 
-          <Field label="Descrição">
+          <Field label="Descrição" required error={errors.description} hint={`${description.length}/140`}>
             <input
-              required
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              onChange={(e) => {
+                setDescription(e.target.value.slice(0, 140));
+                setDismissedSuggestion(false);
+              }}
+              list="tx-recent-descriptions"
+              maxLength={140}
+              autoFocus
+              aria-invalid={!!errors.description}
+              className={`w-full bg-transparent border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${
+                errors.description ? "border-[color:var(--flare)]" : "border-border"
+              }`}
               placeholder="Ex: Almoço iFood"
             />
+            <datalist id="tx-recent-descriptions">
+              {recentDescriptions.map((d) => (
+                <option key={d} value={d} />
+              ))}
+            </datalist>
           </Field>
 
+          {showSuggestionChip && suggestion && suggestedCategory && (
+            <div className="flex items-center justify-between border border-primary/50 bg-primary/5 px-3 py-2 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="size-3.5 text-primary shrink-0" />
+                <span className="truncate">
+                  Sugestão: <b>{suggestedCategory.emoji} {suggestedCategory.name}</b>
+                  {suggestion.kind !== type && (
+                    <> · alternar para <b>{suggestion.kind === "income" ? "Receita" : "Despesa"}</b></>
+                  )}
+                </span>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={applySuggestion}
+                  className="px-2 py-1 bg-primary text-primary-foreground uppercase tracking-wider font-mono"
+                >
+                  Aplicar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDismissedSuggestion(true)}
+                  className="px-2 py-1 border border-border uppercase tracking-wider font-mono text-muted-foreground"
+                >
+                  Ignorar
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Valor (R$)">
-              <input
-                required
-                type="number"
-                step="0.01"
-                min="0"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-transparent border border-border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+            <Field label="Valor" required error={errors.amount}>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground pointer-events-none">
+                  R$
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => {
+                    // Permite dígitos, vírgula e ponto
+                    const v = e.target.value.replace(/[^\d.,]/g, "");
+                    setAmount(v);
+                  }}
+                  onBlur={() => {
+                    const n = parseAmount(amount);
+                    if (Number.isFinite(n) && n > 0) {
+                      setAmount(
+                        n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                      );
+                    }
+                  }}
+                  aria-invalid={!!errors.amount}
+                  placeholder="0,00"
+                  className={`w-full bg-transparent border pl-9 pr-3 py-2.5 text-sm font-mono tabular-nums focus:outline-none focus:ring-2 focus:ring-ring ${
+                    errors.amount ? "border-[color:var(--flare)]" : "border-border"
+                  }`}
+                />
+              </div>
             </Field>
-            <Field label="Data">
+            <Field label="Data" required error={errors.date}>
               <input
-                required
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full bg-transparent border border-border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-invalid={!!errors.date}
+                className={`w-full bg-transparent border px-3 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring ${
+                  errors.date ? "border-[color:var(--flare)]" : "border-border"
+                }`}
               />
             </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Categoria">
+            <Field label="Categoria" error={errors.categoryId}>
               <select
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               >
-                <option value="">—</option>
+                <option value="">— Sem categoria</option>
                 {filteredCats.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.emoji} {c.name}
@@ -681,13 +856,16 @@ function TxModal({
                 ))}
               </select>
             </Field>
-            <Field label="Conta">
+            <Field label="Conta" required error={errors.accountId}>
               <select
                 value={accountId}
                 onChange={(e) => setAccountId(e.target.value)}
-                className="w-full bg-[var(--surface)] border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                aria-invalid={!!errors.accountId}
+                className={`w-full bg-[var(--surface)] border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring ${
+                  errors.accountId ? "border-[color:var(--flare)]" : "border-border"
+                }`}
               >
-                <option value="">—</option>
+                <option value="">— Selecione</option>
                 {accounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
@@ -697,11 +875,13 @@ function TxModal({
             </Field>
           </div>
 
-          <Field label="Notas (opcional)">
+          <Field label="Notas" error={errors.notes} hint={`${notes.length}/500`}>
             <textarea
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => setNotes(e.target.value.slice(0, 500))}
               rows={2}
+              maxLength={500}
+              placeholder="Detalhes opcionais"
               className="w-full bg-transparent border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
             />
           </Field>
@@ -716,8 +896,8 @@ function TxModal({
             </button>
             <button
               type="submit"
-              disabled={saving}
-              className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium"
+              disabled={saving || noAccounts}
+              className="flex-1 bg-primary text-primary-foreground py-2.5 text-xs uppercase tracking-wider font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? "Salvando..." : "Salvar"}
             </button>
@@ -728,11 +908,34 @@ function TxModal({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+  required,
+  error,
+  hint,
+}: {
+  label: string;
+  children: React.ReactNode;
+  required?: boolean;
+  error?: string;
+  hint?: string;
+}) {
   return (
     <label className="block">
-      <span className="hud-label block mb-1.5">{label}</span>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="hud-label">
+          {label}
+          {required && <span className="text-[color:var(--flare)] ml-1">*</span>}
+        </span>
+        {hint && !error && <span className="hud-label text-muted-foreground">{hint}</span>}
+      </div>
       {children}
+      {error && (
+        <div className="mt-1 flex items-center gap-1 text-[11px] font-mono text-[color:var(--flare)]">
+          <AlertCircle className="size-3" /> {error}
+        </div>
+      )}
     </label>
   );
 }
