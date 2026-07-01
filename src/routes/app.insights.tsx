@@ -241,24 +241,21 @@ function InsightsPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <KpiTile
           label="Receitas · MoM"
-          value={brl(trend.income.curr)}
+          value={trend.income.curr}
           delta={`${trend.income.pct >= 0 ? "+" : ""}${trend.income.pct.toFixed(1)}%`}
-          tone={trend.income.pct >= 0 ? "positive" : "negative"}
-          icon={trendIcon(trend.income.pct)}
+          tone={trend.income.pct >= 0 ? "lime" : "flare"}
         />
         <KpiTile
           label="Despesas · MoM"
-          value={brl(trend.expense.curr)}
+          value={trend.expense.curr}
           delta={`${trend.expense.pct >= 0 ? "+" : ""}${trend.expense.pct.toFixed(1)}%`}
-          tone={trend.expense.pct <= 0 ? "positive" : "negative"}
-          icon={trendIcon(trend.expense.pct, true)}
+          tone={trend.expense.pct <= 0 ? "lime" : "flare"}
         />
         <KpiTile
           label="Saldo líquido · MoM"
-          value={brl(trend.net.curr)}
+          value={trend.net.curr}
           delta={`${trend.net.pct >= 0 ? "+" : ""}${trend.net.pct.toFixed(1)}%`}
-          tone={trend.net.curr >= 0 ? "positive" : "negative"}
-          icon={trendIcon(trend.net.pct)}
+          tone={trend.net.curr >= 0 ? "lime" : "flare"}
         />
       </div>
 
