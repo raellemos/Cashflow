@@ -525,6 +525,7 @@ function TransactionsPage() {
           tx={editing}
           categories={cats}
           accounts={accs}
+          recentDescriptions={Array.from(new Set(txs.map((t) => t.description))).slice(0, 50)}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["transactions"] });
