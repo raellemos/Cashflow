@@ -9,6 +9,7 @@ import {
   Wallet,
   Target,
   PieChart,
+  Sparkles,
   ListChecks,
   User as UserIcon,
   LogOut,
