@@ -9,6 +9,7 @@ import {
   Wallet,
   Target,
   PieChart,
+  Sparkles,
   ListChecks,
   User as UserIcon,
   LogOut,
@@ -36,6 +37,7 @@ const NAV = [
   { to: "/app/orcamentos", label: "Orçamentos", icon: PiggyBank },
   { to: "/app/metas", label: "Metas", icon: Target },
   { to: "/app/relatorios", label: "Relatórios", icon: PieChart },
+  { to: "/app/insights", label: "Insights", icon: Sparkles },
   { to: "/app/plano", label: "Plano de ação", icon: ListChecks },
   { to: "/app/perfil", label: "Perfil", icon: UserIcon },
 ] as const;

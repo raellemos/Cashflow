@@ -18,6 +18,7 @@ import { Route as AppPlanoRouteImport } from './routes/app.plano'
 import { Route as AppPerfilRouteImport } from './routes/app.perfil'
 import { Route as AppOrcamentosRouteImport } from './routes/app.orcamentos'
 import { Route as AppMetasRouteImport } from './routes/app.metas'
+import { Route as AppInsightsRouteImport } from './routes/app.insights'
 import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppContasRouteImport } from './routes/app.contas'
 import { Route as AppCategoriesRouteImport } from './routes/app.categories'
@@ -67,6 +68,11 @@ const AppMetasRoute = AppMetasRouteImport.update({
   path: '/metas',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInsightsRoute = AppInsightsRouteImport.update({
+  id: '/insights',
+  path: '/insights',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/app/categories': typeof AppCategoriesRoute
   '/app/contas': typeof AppContasRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/insights': typeof AppInsightsRoute
   '/app/metas': typeof AppMetasRoute
   '/app/orcamentos': typeof AppOrcamentosRoute
   '/app/perfil': typeof AppPerfilRoute
@@ -104,6 +111,7 @@ export interface FileRoutesByTo {
   '/app/categories': typeof AppCategoriesRoute
   '/app/contas': typeof AppContasRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/insights': typeof AppInsightsRoute
   '/app/metas': typeof AppMetasRoute
   '/app/orcamentos': typeof AppOrcamentosRoute
   '/app/perfil': typeof AppPerfilRoute
@@ -119,6 +127,7 @@ export interface FileRoutesById {
   '/app/categories': typeof AppCategoriesRoute
   '/app/contas': typeof AppContasRoute
   '/app/dashboard': typeof AppDashboardRoute
+  '/app/insights': typeof AppInsightsRoute
   '/app/metas': typeof AppMetasRoute
   '/app/orcamentos': typeof AppOrcamentosRoute
   '/app/perfil': typeof AppPerfilRoute
@@ -135,6 +144,7 @@ export interface FileRouteTypes {
     | '/app/categories'
     | '/app/contas'
     | '/app/dashboard'
+    | '/app/insights'
     | '/app/metas'
     | '/app/orcamentos'
     | '/app/perfil'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/app/categories'
     | '/app/contas'
     | '/app/dashboard'
+    | '/app/insights'
     | '/app/metas'
     | '/app/orcamentos'
     | '/app/perfil'
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/app/categories'
     | '/app/contas'
     | '/app/dashboard'
+    | '/app/insights'
     | '/app/metas'
     | '/app/orcamentos'
     | '/app/perfil'
@@ -242,6 +254,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMetasRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/insights': {
+      id: '/app/insights'
+      path: '/insights'
+      fullPath: '/app/insights'
+      preLoaderRoute: typeof AppInsightsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/dashboard': {
       id: '/app/dashboard'
       path: '/dashboard'
@@ -270,6 +289,7 @@ interface AppRouteChildren {
   AppCategoriesRoute: typeof AppCategoriesRoute
   AppContasRoute: typeof AppContasRoute
   AppDashboardRoute: typeof AppDashboardRoute
+  AppInsightsRoute: typeof AppInsightsRoute
   AppMetasRoute: typeof AppMetasRoute
   AppOrcamentosRoute: typeof AppOrcamentosRoute
   AppPerfilRoute: typeof AppPerfilRoute
@@ -282,6 +302,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCategoriesRoute: AppCategoriesRoute,
   AppContasRoute: AppContasRoute,
   AppDashboardRoute: AppDashboardRoute,
+  AppInsightsRoute: AppInsightsRoute,
   AppMetasRoute: AppMetasRoute,
   AppOrcamentosRoute: AppOrcamentosRoute,
   AppPerfilRoute: AppPerfilRoute,
