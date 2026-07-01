@@ -10,8 +10,8 @@ import { HudLabel } from "@/components/hud-label";
 import { BrutalCard } from "@/components/brutal-card";
 import { ExportMenu } from "@/components/export-menu";
 import { exportCSV, exportPDF } from "@/lib/export";
-import { suggestCategory } from "@/lib/auto-categorization";
-import { Plus, Pencil, Trash2, X, Search, Share2, FilterX } from "lucide-react";
+import { suggestCategoryDetailed } from "@/lib/auto-categorization";
+import { Plus, Pencil, Trash2, X, Search, Share2, FilterX, Sparkles, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 const transactionsSearchSchema = z.object({
