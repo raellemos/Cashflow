@@ -214,12 +214,6 @@ function InsightsPage() {
     fontSize: 12,
   } as const;
 
-  const trendIcon = (pct: number, invert = false) => {
-    const good = invert ? pct < 0 : pct > 0;
-    const flat = Math.abs(pct) < 0.5;
-    if (flat) return <Minus className="size-3" />;
-    return good ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />;
-  };
 
   const totalExpense = expenseByCategory.reduce((s, c) => s + c.value, 0);
 
