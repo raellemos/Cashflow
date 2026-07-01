@@ -140,6 +140,8 @@ function DashboardPage() {
 
   const savingsRate = income > 0 ? (balance / income) * 100 : 0;
 
+  const { alerts: budgetAlerts } = useBudgetAlerts();
+
   return (
     <div className="space-y-6">
       <div className="relative border border-border p-5 md:p-6 overflow-hidden">
